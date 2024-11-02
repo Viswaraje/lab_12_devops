@@ -1,7 +1,7 @@
 pipeline {
     agent any
     environment {
-        DOCKER_IMAGE = "viswaraje/blue-green-app:v1"
+        DOCKER_IMAGE = "viswaraje/blue-green-app:v1" // Use your actual Docker Hub username
         BLUE_PORT = "3001"
         GREEN_PORT = "3002"
     }
