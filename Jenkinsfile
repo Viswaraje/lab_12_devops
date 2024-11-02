@@ -1,53 +1,87 @@
 pipeline {
     agent any
+
     environment {
-        DOCKER_IMAGE = "viswaraje/blue-green-app:v1" // Use your actual Docker Hub username
-        BLUE_PORT = "3001"
-        GREEN_PORT = "3002"
+        DOCKER_IMAGE = "viswaraje/blue-green-app:v1"
+        BLUE_CONTAINER_NAME = "blue-green-app:v1-blue"
+        GREEN_CONTAINER_NAME = "blue-green-app:v1-green"
     }
+
     stages {
-        stage('Checkout') {
-            steps {
-                git 'https://github.com/Viswaraje/lab_12_devops.git'
-            }
-        }
-        stage('Build Docker Image') {
+        stage('Build') {
             steps {
                 script {
-                    docker.build("${DOCKER_IMAGE}")
+                    docker.build(DOCKER_IMAGE)
                 }
             }
         }
-        stage('Push to Docker Hub') {
+
+        stage('Deploy to Blue') {
             steps {
                 script {
-                    docker.image("${DOCKER_IMAGE}").push()
+                    try {
+                        docker.image(DOCKER_IMAGE).run("--name $BLUE_CONTAINER_NAME -d -p 3001:3000")
+                    } catch (e) {
+                        echo "Blue environment already exists. Starting a new one."
+                        sh "docker rm -f $BLUE_CONTAINER_NAME"
+                        docker.image(DOCKER_IMAGE).run("--name $BLUE_CONTAINER_NAME -d -p 3001:3000")
+                    }
                 }
             }
         }
-        stage('Deploy Blue') {
+
+        stage('Test Blue') {
             steps {
-                sh 'docker run -d -p ${BLUE_PORT}:3000 --name blue ${DOCKER_IMAGE}'
+                script {
+                    def response = sh(script: "curl -s http://localhost:3001/status", returnStdout: true).trim()
+                    if (response != '{"status":"API is running"}') {
+                        error "Blue environment test failed"
+                    }
+                }
             }
         }
-        stage('Deploy Green') {
+
+        stage('Deploy to Green') {
             steps {
-                sh 'docker run -d -p ${GREEN_PORT}:3000 --name green ${DOCKER_IMAGE}'
+                script {
+                    try {
+                        docker.image(DOCKER_IMAGE).run("--name $GREEN_CONTAINER_NAME -d -p 3002:3000")
+                    } catch (e) {
+                        echo "Green environment already exists. Starting a new one."
+                        sh "docker rm -f $GREEN_CONTAINER_NAME"
+                        docker.image(DOCKER_IMAGE).run("--name $GREEN_CONTAINER_NAME -d -p 3002:3000")
+                    }
+                }
             }
         }
-        stage('Switch Traffic') {
+
+        stage('Test Green') {
             steps {
-                input message: "Switch traffic to Green environment?"
-                sh 'docker stop blue && docker start green'
+                script {
+                    def response = sh(script: "curl -s http://localhost:3002/status", returnStdout: true).trim()
+                    if (response != '{"status":"API is running"}') {
+                        error "Green environment test failed"
+                    }
+                }
             }
         }
-    }
-    post {
-        always {
-            sh 'docker stop green || true'
-            sh 'docker rm green || true'
-            sh 'docker stop blue || true'
-            sh 'docker rm blue || true'
+
+        stage('Switch Traffic to Green') {
+            steps {
+                script {
+                    // Here, you would update the load balancer configuration to route traffic to Green
+                    echo "Switching traffic to Green environment"
+                    // For example, if you are using nginx, you could update the nginx config
+                }
+            }
+        }
+
+        stage('Clean Up Blue') {
+            steps {
+                script {
+                    sh "docker rm -f $BLUE_CONTAINER_NAME"
+                }
+            }
         }
     }
 }
